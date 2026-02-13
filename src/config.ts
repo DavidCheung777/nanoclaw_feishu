@@ -49,6 +49,13 @@ export const TRIGGER_PATTERN = new RegExp(
   'i',
 );
 
+// Feishu (Lark) channel configuration
+export const FEISHU_ASSISTANT_NAME = process.env.FEISHU_ASSISTANT_NAME || ASSISTANT_NAME;
+export const FEISHU_TRIGGER_PATTERN = new RegExp(
+  `^@${escapeRegex(FEISHU_ASSISTANT_NAME)}\\b`,
+  'i',
+);
+
 // Timezone for scheduled tasks (cron expressions, etc.)
 // Uses system timezone by default
 export const TIMEZONE =

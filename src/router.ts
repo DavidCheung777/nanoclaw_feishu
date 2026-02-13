@@ -1,4 +1,4 @@
-import { ASSISTANT_NAME } from './config.js';
+import { ASSISTANT_NAME, FEISHU_ASSISTANT_NAME } from './config.js';
 import { Channel, NewMessage } from './types.js';
 
 export function escapeXml(s: string): string {
@@ -23,8 +23,10 @@ export function stripInternalTags(text: string): string {
 export function formatOutbound(channel: Channel, rawText: string): string {
   const text = stripInternalTags(rawText);
   if (!text) return '';
+  // Use Feishu assistant name for Feishu channel, default for others
+  const assistantName = channel.name === 'feishu' ? FEISHU_ASSISTANT_NAME : ASSISTANT_NAME;
   const prefix =
-    channel.prefixAssistantName !== false ? `${ASSISTANT_NAME}: ` : '';
+    channel.prefixAssistantName !== false ? `${assistantName}: ` : '';
   return `${prefix}${text}`;
 }
 
