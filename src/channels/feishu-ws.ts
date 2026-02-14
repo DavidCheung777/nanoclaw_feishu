@@ -131,7 +131,9 @@ export class FeishuChannel implements Channel {
     };
 
     // WebSocket URL for Feishu event subscription
-    this.wsUrl = `wss://ws-open.feishu.cn/event?app_id=${appId}&token=${verificationToken}`;
+    // Note: Feishu WebSocket requires tenant_access_token for authentication
+    // We will update the URL after obtaining the token in connect()
+    this.wsUrl = `wss://ws-open.feishu.cn/event?app_id=${appId}`;
   }
 
   async connect(): Promise<void> {
@@ -162,9 +164,12 @@ export class FeishuChannel implements Channel {
       this.ws.close();
     }
 
-    logger.info({ url: this.wsUrl.replace(/token=[^&]+/, 'token=***') }, 'Connecting to Feishu WebSocket');
+    // Use tenantToken for WebSocket authentication
+    const wsUrlWithToken = `${this.wsUrl}&token=${this.tenantToken}`;
 
-    this.ws = new WebSocket(this.wsUrl, {
+    logger.info({ url: this.wsUrl }, 'Connecting to Feishu WebSocket');
+
+    this.ws = new WebSocket(wsUrlWithToken, {
       headers: {
         'User-Agent': 'NanoClaw/1.0',
       },
