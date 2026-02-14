@@ -12,7 +12,7 @@ import {
   POLL_INTERVAL,
   TRIGGER_PATTERN,
 } from './config.js';
-import { FeishuChannel } from './channels/feishu.js';
+import { FeishuChannel } from './channels/feishu-ws.js';
 import {
   ContainerOutput,
   runContainerAgent,
