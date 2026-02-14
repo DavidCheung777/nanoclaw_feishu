@@ -1,4 +1,4 @@
-import { Client, EventDispatcher } from '@larksuiteoapi/node-sdk';
+import * as Lark from '@larksuiteoapi/node-sdk';
 
 import { FEISHU_ASSISTANT_NAME, FEISHU_TRIGGER_PATTERN } from '../config.js';
 import {
@@ -25,11 +25,10 @@ export class FeishuChannel implements Channel {
   name = 'feishu';
   prefixAssistantName = true;
 
+
   private connected = false;
-  private client: Client | null = null;
-  private dispatcher: EventDispatcher | null = null;
-  private tenantToken: string | null = null;
-  private tokenExpiry: number = 0;
+  private wsClient: Lark.WSClient | null = null;
+  private eventDispatcher: Lark.EventDispatcher | null = null;
   private groupSyncTimerStarted = false;
   private outgoingQueue: Array<{ chatId: string; text: string }> = [];
   private flushing = false;
@@ -38,58 +37,52 @@ export class FeishuChannel implements Channel {
   private config: {
     appId: string;
     appSecret: string;
-    verificationToken: string;
   };
 
   constructor(opts: FeishuChannelOpts) {
     this.opts = opts;
 
+
     // Load configuration from environment
     const appId = process.env.FEISHU_APP_ID;
     const appSecret = process.env.FEISHU_APP_SECRET;
-    const verificationToken = process.env.FEISHU_VERIFICATION_TOKEN;
 
-    if (!appId || !appSecret || !verificationToken) {
+
+    if (!appId || !appSecret) {
       throw new Error(
-        'Missing Feishu configuration. Set FEISHU_APP_ID, FEISHU_APP_SECRET, and FEISHU_VERIFICATION_TOKEN environment variables.',
+        'Missing Feishu configuration. Set FEISHU_APP_ID and FEISHU_APP_SECRET environment variables.',
       );
     }
+
 
     this.config = {
       appId,
       appSecret,
-      verificationToken,
     };
   }
 
   async connect(): Promise<void> {
-    // Create Lark SDK client
-    this.client = new Client({
-      appId: this.config.appId,
-      appSecret: this.config.appSecret,
-    });
-
-    // Create event dispatcher for WebSocket connection
-    this.dispatcher = new EventDispatcher({
-      verificationToken: this.config.verificationToken,
-    });
-
-    // Register message handler
-    this.dispatcher.on('im.message.receive_v1', async (data) => {
-      await this.handleMessageEvent(data);
-    });
-
-    // Start WebSocket connection using SDK
     try {
-      // The SDK handles WebSocket connection internally
-      logger.info('Connecting to Feishu via SDK WebSocket...');
+      // Create WebSocket client
+      this.wsClient = new Lark.WSClient({
+        appId: this.config.appId,
+        appSecret: this.config.appSecret,
+      });
 
-      // Set up periodic token refresh
-      const refreshInterval = 5 * 60 * 1000; // 5 minutes
-      setInterval(() => {
-        this.refreshToken().catch((err) => logger.error({ err }, 'Failed to refresh Feishu token'));
-      }, refreshInterval);
-
+      // Create event dispatcher and register handlers
+      this.eventDispatcher = new Lark.EventDispatcher({})
+        .register({
+          'im.message.receive_v1': async (data: any) => {
+            await this.handleMessageEvent(data);
+          },
+        });
+      logger.info('Starting Feishu WebSocket connection...');
+      // Start WebSocket connection
+      await this.wsClient.start({
+        eventDispatcher: this.eventDispatcher,
+      });
+      this.connected = true;
+      logger.info('Connected to Feishu via WebSocket');
       // Set up daily group sync
       if (!this.groupSyncTimerStarted) {
         this.groupSyncTimerStarted = true;
@@ -97,37 +90,28 @@ export class FeishuChannel implements Channel {
           this.syncGroupMetadata().catch((err) => logger.error({ err }, 'Periodic group sync failed'));
         }, GROUP_SYNC_INTERVAL_MS);
       }
-
-      this.connected = true;
-      logger.info('Connected to Feishu via SDK');
     } catch (err) {
-      logger.error({ err }, 'Failed to connect to Feishu via SDK');
+      logger.error({ err }, 'Failed to connect to Feishu WebSocket');
       throw err;
     }
   }
-
   private async handleMessageEvent(data: any): Promise<void> {
     try {
       const { sender, message } = data.event;
-
       // Skip messages from the bot itself
       if (sender.sender_type === 'app') {
         return;
       }
-
       const chatId = message.chat_id;
       const chatJid = `feishu_${chatId}@feishu.net`;
       const timestamp = new Date(parseInt(message.create_time)).toISOString();
-
       // Notify about chat metadata
       this.opts.onChatMetadata(chatJid, timestamp);
-
       // Only process messages for registered groups
       const groups = this.opts.registeredGroups();
       if (!groups[chatJid]) {
         return;
       }
-
       // Parse message content
       let content: FeishuMessageContent = {};
       try {
@@ -136,10 +120,8 @@ export class FeishuChannel implements Channel {
         logger.warn({ content: message.content }, 'Failed to parse Feishu message content');
         return;
       }
-
       const text = content.text || '';
       const senderName = sender.sender_id.user_id || sender.sender_id.open_id || 'Unknown';
-
       this.opts.onMessage(chatJid, {
         id: message.message_id,
         chat_jid: chatJid,
@@ -153,42 +135,13 @@ export class FeishuChannel implements Channel {
       logger.error({ err }, 'Failed to handle Feishu message event');
     }
   }
-
-  private async refreshToken(): Promise<void> {
-    try {
-      if (!this.client) {
-        throw new Error('Client not initialized');
-      }
-
-      // Get tenant access token using SDK
-      const resp = await this.client.request({
-        method: 'POST',
-        url: '/auth/v3/tenant_access_token/internal',
-        data: {
-          app_id: this.config.appId,
-          app_secret: this.config.appSecret,
-        },
-      });
-
-      const data = resp as { tenant_access_token: string; expire: number };
-      this.tenantToken = data.tenant_access_token;
-      this.tokenExpiry = Date.now() + data.expire * 1000;
-      logger.debug('Feishu tenant token refreshed');
-    } catch (err) {
-      logger.error({ err }, 'Failed to refresh Feishu token');
-      throw err;
-    }
-  }
-
   async sendMessage(chatId: string, text: string): Promise<void> {
     const actualChatId = chatId.replace(/^feishu_/, '').replace(/@feishu\.net$/, '');
-
-    if (!this.connected || !this.client) {
+    if (!this.connected || !this.wsClient) {
       this.outgoingQueue.push({ chatId: actualChatId, text });
       logger.info({ chatId, length: text.length, queueSize: this.outgoingQueue.length }, 'Feishu disconnected, message queued');
       return;
     }
-
     try {
       await this.sendMessageToFeishu(actualChatId, text);
       logger.info({ chatId, length: text.length }, 'Message sent to Feishu');
@@ -197,13 +150,14 @@ export class FeishuChannel implements Channel {
       logger.warn({ chatId, err, queueSize: this.outgoingQueue.length }, 'Failed to send to Feishu, message queued');
     }
   }
-
   private async sendMessageToFeishu(chatId: string, text: string): Promise<void> {
-    if (!this.client) {
-      throw new Error('Client not initialized');
-    }
-
-    await this.client.im.message.create({
+    // Note: For WebSocket mode, we need to use the HTTP client to send messages
+    // Create a temporary client for sending messages
+    const client = new Lark.Client({
+      appId: this.config.appId,
+      appSecret: this.config.appSecret,
+    });
+    await client.im.message.create({
       params: {
         receive_id_type: 'chat_id',
       },
@@ -214,27 +168,26 @@ export class FeishuChannel implements Channel {
       },
     });
   }
-
   isConnected(): boolean {
     return this.connected;
   }
-
   ownsJid(jid: string): boolean {
     return jid.endsWith('@feishu.net');
   }
-
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
     // Feishu doesn't have a direct typing indicator API for bots
     logger.debug({ jid, isTyping }, 'Feishu typing indicator not supported');
   }
-
   async disconnect(): Promise<void> {
     this.connected = false;
-    this.dispatcher = null;
-    this.client = null;
-    logger.info('Feishu SDK disconnected');
+    if (this.wsClient) {
+      // Note: WSClient doesn't have a disconnect method in the SDK
+      // The connection will be closed when the process exits
+      this.wsClient = null;
+    }
+    this.eventDispatcher = null;
+    logger.info('Feishu WebSocket disconnected');
   }
-
   async syncGroupMetadata(force = false): Promise<void> {
     if (!force) {
       const lastSync = getLastGroupSync();
@@ -246,19 +199,17 @@ export class FeishuChannel implements Channel {
         }
       }
     }
-
     try {
       logger.info('Syncing group metadata from Feishu...');
-
-      if (!this.client) {
-        throw new Error('Client not initialized');
-      }
-
+      // Create a temporary client for API calls
+      const client = new Lark.Client({
+        appId: this.config.appId,
+        appSecret: this.config.appSecret,
+      });
       // Get chats using SDK
-      const resp = await this.client.im.chat.list({
+      const resp = await client.im.chat.list({
         params: {},
       });
-
       const data = resp as { items?: Array<{ chat_id?: string; name?: string }> };
       let count = 0;
       for (const chat of data.items || []) {
@@ -268,14 +219,12 @@ export class FeishuChannel implements Channel {
           count++;
         }
       }
-
       setLastGroupSync();
       logger.info({ count }, 'Feishu group metadata synced');
     } catch (err) {
       logger.error({ err }, 'Failed to sync Feishu group metadata');
     }
   }
-
   private async flushOutgoingQueue(): Promise<void> {
     if (this.flushing || this.outgoingQueue.length === 0) return;
     this.flushing = true;
