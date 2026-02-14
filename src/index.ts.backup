@@ -394,78 +394,45 @@ function recoverPendingMessages(): void {
 }
 
 function ensureContainerSystemRunning(): void {
-  // Check if Docker is available (Linux mode)
   try {
-    execSync('docker info', { stdio: 'pipe' });
-    logger.debug('Docker is available');
+    execSync('container system status', { stdio: 'pipe' });
+    logger.debug('Apple Container system already running');
   } catch {
-    // Fall back to Apple Container (macOS mode)
+    logger.info('Starting Apple Container system...');
     try {
-      execSync('container system status', { stdio: 'pipe' });
-      logger.debug('Apple Container system already running');
-    } catch {
-      logger.info('Starting Apple Container system...');
-      try {
-        execSync('container system start', { stdio: 'pipe', timeout: 30000 });
-        logger.info('Apple Container system started');
-      } catch (err) {
-        logger.error({ err }, 'Failed to start Apple Container system');
-        console.error(
-          '\n╔════════════════════════════════════════════════════════════════╗',
-        );
-        console.error(
-          '║  FATAL: Container system failed to start                        ║',
-        );
-        console.error(
-          '║                                                                ║',
-        );
-        console.error(
-          '║  Install Docker (Linux) or Apple Container (macOS):            ║',
-        );
-        console.error(
-          '║  - Docker: https://docs.docker.com/engine/install/             ║',
-        );
-        console.error(
-          '║  - Apple: https://github.com/apple/container/releases          ║',
-        );
-        console.error(
-          '╚════════════════════════════════════════════════════════════════╝\n',
-        );
-        throw new Error('Container system is required but failed to start');
-      }
+      execSync('container system start', { stdio: 'pipe', timeout: 30000 });
+      logger.info('Apple Container system started');
+    } catch (err) {
+      logger.error({ err }, 'Failed to start Apple Container system');
+      console.error(
+        '\n╔════════════════════════════════════════════════════════════════╗',
+      );
+      console.error(
+        '║  FATAL: Apple Container system failed to start                 ║',
+      );
+      console.error(
+        '║                                                                ║',
+      );
+      console.error(
+        '║  Agents cannot run without Apple Container. To fix:           ║',
+      );
+      console.error(
+        '║  1. Install from: https://github.com/apple/container/releases ║',
+      );
+      console.error(
+        '║  2. Run: container system start                               ║',
+      );
+      console.error(
+        '║  3. Restart NanoClaw                                          ║',
+      );
+      console.error(
+        '╚════════════════════════════════════════════════════════════════╝\n',
+      );
+      throw new Error('Apple Container system is required but failed to start');
     }
   }
 
   // Kill and clean up orphaned NanoClaw containers from previous runs
-  cleanupOrphanedContainers();
-}
-
-function cleanupOrphanedContainers(): void {
-  // Try Docker first (Linux)
-  try {
-    const output = execSync('docker ps --format json', {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-    });
-    const lines = output.trim().split('\n').filter(l => l);
-    const containers: { Names?: string; State?: string }[] = lines.map(l => JSON.parse(l));
-    const orphans = containers
-      .filter((c) => c.State === 'running' && c.Names?.startsWith('nanoclaw-'))
-      .map((c) => c.Names!);
-    for (const name of orphans) {
-      try {
-        execSync(`docker stop ${name}`, { stdio: 'pipe' });
-      } catch { /* already stopped */ }
-    }
-    if (orphans.length > 0) {
-      logger.info({ count: orphans.length, names: orphans }, 'Stopped orphaned Docker containers');
-    }
-    return;
-  } catch {
-    // Fall through to Apple Container
-  }
-
-  // Try Apple Container (macOS)
   try {
     const output = execSync('container ls --format json', {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -481,7 +448,7 @@ function cleanupOrphanedContainers(): void {
       } catch { /* already stopped */ }
     }
     if (orphans.length > 0) {
-      logger.info({ count: orphans.length, names: orphans }, 'Stopped orphaned Apple containers');
+      logger.info({ count: orphans.length, names: orphans }, 'Stopped orphaned containers');
     }
   } catch (err) {
     logger.warn({ err }, 'Failed to clean up orphaned containers');
