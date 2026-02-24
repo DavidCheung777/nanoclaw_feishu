@@ -393,47 +393,22 @@ function recoverPendingMessages(): void {
   }
 }
 
-function ensureContainerSystemRunning(): void {
-  // Check if Docker is available (Linux mode)
+function ensureDockerRunning(): void {
   try {
-    execSync('docker info', { stdio: 'pipe' });
-    logger.debug('Docker is available');
+    execSync('docker info', { stdio: 'pipe', timeout: 10000 });
+    logger.debug('Docker daemon is running');
   } catch {
-    // Fall back to Apple Container (macOS mode)
-    try {
-      execSync('container system status', { stdio: 'pipe' });
-      logger.debug('Apple Container system already running');
-    } catch {
-      logger.info('Starting Apple Container system...');
-      try {
-        execSync('container system start', { stdio: 'pipe', timeout: 30000 });
-        logger.info('Apple Container system started');
-      } catch (err) {
-        logger.error({ err }, 'Failed to start Apple Container system');
-        console.error(
-          '\n╔════════════════════════════════════════════════════════════════╗',
-        );
-        console.error(
-          '║  FATAL: Container system failed to start                        ║',
-        );
-        console.error(
-          '║                                                                ║',
-        );
-        console.error(
-          '║  Install Docker (Linux) or Apple Container (macOS):            ║',
-        );
-        console.error(
-          '║  - Docker: https://docs.docker.com/engine/install/             ║',
-        );
-        console.error(
-          '║  - Apple: https://github.com/apple/container/releases          ║',
-        );
-        console.error(
-          '╚════════════════════════════════════════════════════════════════╝\n',
-        );
-        throw new Error('Container system is required but failed to start');
-      }
-    }
+    logger.error('Docker daemon is not running');
+    console.error('\n╔════════════════════════════════════════════════════════════════╗');
+    console.error('║  FATAL: Docker is not running                                  ║');
+    console.error('║                                                                ║');
+    console.error('║  Agents cannot run without Docker. To fix:                     ║');
+    console.error('║  macOS: Start Docker Desktop                                   ║');
+    console.error('║  Linux: sudo systemctl start docker                            ║');
+    console.error('║                                                                ║');
+    console.error('║  Install from: https://docker.com/products/docker-desktop      ║');
+    console.error('╚════════════════════════════════════════════════════════════════╝\n');
+    throw new Error('Docker is required but not running');
   }
 
   // Kill and clean up orphaned NanoClaw containers from previous runs
@@ -489,7 +464,7 @@ function cleanupOrphanedContainers(): void {
 }
 
 async function main(): Promise<void> {
-  ensureContainerSystemRunning();
+  ensureDockerRunning();
   initDatabase();
   logger.info('Database initialized');
   loadState();

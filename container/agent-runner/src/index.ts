@@ -371,12 +371,20 @@ async function runQuery(
     globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 
+  // Load model and API configuration from environment variables
+  const model = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL;
+  const baseUrl = process.env.ANTHROPIC_BASE_URL;
+  const authToken = process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
+
   for await (const message of query({
     prompt: stream,
     options: {
       cwd: '/workspace/group',
       resume: sessionId,
       resumeSessionAt: resumeAt,
+      ...(model && { model }),
+      ...(baseUrl && { baseUrl }),
+      ...(authToken && { authToken }),
       systemPrompt: globalClaudeMd
         ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
         : undefined,

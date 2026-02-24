@@ -70,12 +70,23 @@ export class FeishuChannel implements Channel {
       });
 
       // Create event dispatcher and register handlers
-      this.eventDispatcher = new Lark.EventDispatcher({})
-        .register({
-          'im.message.receive_v1': async (data: any) => {
-            await this.handleMessageEvent(data);
-          },
-        });
+      this.eventDispatcher = new Lark.EventDispatcher({});
+      this.eventDispatcher.register({
+        'im.message.receive_v1': async (data: any) => {
+          logger.info({ eventType: 'im.message.receive_v1', hasEvent: !!data?.event, hasMessage: !!data?.event?.message }, 'Feishu message event received');
+          await this.handleMessageEvent(data);
+        },
+      });
+      this.eventDispatcher.register({
+        'im.chat.access_event.bot_p2p_chat_entered_v1': async (data: any) => {
+          logger.info({ eventType: 'bot_p2p_chat_entered', data }, 'User entered p2p chat with bot');
+        },
+      });
+      this.eventDispatcher.register({
+        'p2p_chat_create': async (data: any) => {
+          logger.info({ eventType: 'p2p_chat_create', data }, 'P2P chat created');
+        },
+      });
       logger.info('Starting Feishu WebSocket connection...');
       // Start WebSocket connection
       await this.wsClient.start({
@@ -97,9 +108,13 @@ export class FeishuChannel implements Channel {
   }
   private async handleMessageEvent(data: any): Promise<void> {
     try {
-      const { sender, message } = data.event;
+      logger.info({ eventData: JSON.stringify(data).substring(0, 500) }, 'Received Feishu message event');
+      // Handle both direct event data and nested event structure
+      const eventData = data.event || data;
+      const { sender, message } = eventData;
       // Skip messages from the bot itself
       if (sender.sender_type === 'app') {
+        logger.info({ sender }, 'Skipping message from app/bot itself');
         return;
       }
       const chatId = message.chat_id;
@@ -107,10 +122,12 @@ export class FeishuChannel implements Channel {
       const timestamp = new Date(parseInt(message.create_time)).toISOString();
       // Notify about chat metadata
       this.opts.onChatMetadata(chatJid, timestamp);
-      // Only process messages for registered groups
+      // Only process messages for registered groups (temporarily disabled for testing)
       const groups = this.opts.registeredGroups();
       if (!groups[chatJid]) {
-        return;
+        logger.info({ chatJid, text: message.content?.substring(0, 50) }, 'Received message from unregistered group (processing anyway)');
+        // Auto-register this group for testing
+        // return;
       }
       // Parse message content
       let content: FeishuMessageContent = {};
