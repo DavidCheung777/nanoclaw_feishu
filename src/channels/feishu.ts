@@ -87,7 +87,7 @@ interface FeishuEvent {
 
 export class FeishuChannel implements Channel {
   name = 'feishu';
-  prefixAssistantName = true;
+  prefixAssistantName = false;
 
   private connected = false;
   private server: http.Server | null = null;

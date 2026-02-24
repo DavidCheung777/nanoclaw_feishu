@@ -23,7 +23,7 @@ interface FeishuMessageContent {
 
 export class FeishuChannel implements Channel {
   name = 'feishu';
-  prefixAssistantName = true;
+  prefixAssistantName = false;
 
 
   private connected = false;
