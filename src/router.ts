@@ -25,8 +25,9 @@ export function formatOutbound(channel: Channel, rawText: string): string {
   if (!text) return '';
   // Use Feishu assistant name for Feishu channel, default for others
   const assistantName = channel.name === 'feishu' ? FEISHU_ASSISTANT_NAME : ASSISTANT_NAME;
-  const prefix =
-    channel.prefixAssistantName !== false ? `${assistantName}: ` : '';
+  // For Feishu channel, default to no prefix - user explicitly requested this
+  const prefix = channel.name === 'feishu' ? '' :
+    (channel.prefixAssistantName !== false ? `${assistantName}: ` : '');
   return `${prefix}${text}`;
 }
 
