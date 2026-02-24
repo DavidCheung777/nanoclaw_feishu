@@ -1,9 +1,10 @@
 <p align="center">
-  <img src="assets/nanoclaw-logo.png" alt="NanoClaw" width="400">
+  <img src="assets/nanoclaw-logo.png" alt="NanoClaw for Feishu" width="400">
 </p>
 
 <p align="center">
-  My personal Claude assistant that runs securely in containers. Lightweight and built to be understood and customized for your own needs.
+  NanoClaw - A personal Claude AI assistant that runs securely in containers. <br>
+  <strong>This fork adds Feishu (Lark) support with WebSocket long connection.</strong>
 </p>
 
 <p align="center">
@@ -21,12 +22,29 @@ NanoClaw gives you the same core functionality in a codebase you can understand 
 ## Quick Start
 
 ```bash
-git clone https://github.com/gavrielc/nanoclaw.git
-cd nanoclaw
+git clone https://github.com/DavidCheung777/nanoclaw_feishu.git
+cd nanoclaw_feishu
 claude
 ```
 
 Then run `/setup`. Claude Code handles everything: dependencies, authentication, container setup, service configuration.
+
+## Feishu Configuration
+
+To use with Feishu (Lark):
+
+1. Create a custom application in [Feishu Developer Platform](https://open.feishu.cn/)
+2. Enable the `im:message` permission
+3. Get your `App ID` and `App Secret`
+4. Add these to your `.env` file:
+
+```env
+FEISHU_APP_ID=cli_xxxxxx
+FEISHU_APP_SECRET=xxxxxxxxxxxx
+CHANNEL_TYPE=feishu
+```
+
+5. Add the bot to your chats/channels and start chatting!
 
 ## Philosophy
 
@@ -46,9 +64,10 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 
 ## What It Supports
 
-- **WhatsApp I/O** - Message Claude from your phone
+- **WhatsApp / Feishu (Lark) I/O** - Message Claude from your phone via WhatsApp or Feishu
+- **Feishu WebSocket support** - Native Feishu SDK with long-lived WebSocket connection for real-time messaging
 - **Isolated group context** - Each group has its own `CLAUDE.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted
-- **Main channel** - Your private channel (self-chat) for admin control; every other group is completely isolated
+- **Main channel** - Your private channel for admin control; every other group is completely isolated
 - **Scheduled tasks** - Recurring jobs that run Claude and can message you back
 - **Web access** - Search and fetch content
 - **Container isolation** - Agents sandboxed in Apple Container (macOS) or Docker (macOS/Linux)
@@ -98,6 +117,7 @@ Users then run `/add-telegram` on their fork and get clean code that does exactl
 Skills we'd love to see:
 
 **Communication Channels**
+- ✅ **Feishu (Lark)** - Already supported in this fork via WebSocket
 - `/add-telegram` - Add Telegram as channel. Should give the user option to replace WhatsApp or add as additional channel. Also should be possible to add it as a control channel (where it can trigger actions) or just a channel that can be used in actions triggered elsewhere
 - `/add-slack` - Add Slack
 - `/add-discord` - Add Discord
@@ -118,7 +138,8 @@ Skills we'd love to see:
 ## Architecture
 
 ```
-WhatsApp (baileys) --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
+WhatsApp (baileys)  --> SQLite --> Message loop --> Container (Claude Agent SDK) --> Response
+Feishu (WebSocket)  --> SQLite --> Message loop --> Container (Claude Agent SDK) --> Response
 ```
 
 Single Node.js process. Agents execute in isolated Linux containers with mounted directories. Per-group message queue with concurrency control. IPC via filesystem.
@@ -126,6 +147,7 @@ Single Node.js process. Agents execute in isolated Linux containers with mounted
 Key files:
 - `src/index.ts` - Orchestrator: state, message loop, agent invocation
 - `src/channels/whatsapp.ts` - WhatsApp connection, auth, send/receive
+- `src/channels/feishu-sdk-ws.ts` - Feishu (Lark) WebSocket connection using official SDK
 - `src/ipc.ts` - IPC watcher and task processing
 - `src/router.ts` - Message formatting and outbound routing
 - `src/group-queue.ts` - Per-group queue with global concurrency limit
@@ -139,6 +161,10 @@ Key files:
 **Why WhatsApp and not Telegram/Signal/etc?**
 
 Because I use WhatsApp. Fork it and run a skill to change it. That's the whole point.
+
+**Can I use this with Feishu (Lark)?**
+
+Yes! This fork adds native Feishu support using the official Feishu SDK with WebSocket long connection. See [Feishu Configuration](#feishu-configuration) above.
 
 **Why Apple Container instead of Docker?**
 
