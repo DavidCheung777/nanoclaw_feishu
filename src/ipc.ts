@@ -75,9 +75,14 @@ export function startIpcWatcher(deps: IpcDeps): void {
               if (data.type === 'message' && data.chatJid && data.text) {
                 // Authorization: verify this group can send to this chatJid
                 const targetGroup = registeredGroups[data.chatJid];
+                // Only allow IPC send if:
+                // 1. It's from main group (can send to any chat) OR
+                // 2. It's cross-group (sourceGroup !== targetGroup) → main group handling
+                // For same-group output: streaming already sent directly in processGroupMessages
+                // No need to send twice!
                 if (
                   isMain ||
-                  (targetGroup && targetGroup.folder === sourceGroup)
+                  (targetGroup && targetGroup.folder !== sourceGroup)
                 ) {
                   await deps.sendMessage(
                     data.chatJid,
@@ -86,6 +91,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   logger.info(
                     { chatJid: data.chatJid, sourceGroup },
                     'IPC message sent',
+                  );
+                } else if (targetGroup && targetGroup.folder === sourceGroup) {
+                  // Same-group output: already sent via streaming, skip duplicate
+                  logger.debug(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'Skipping duplicate IPC send (already sent via streaming)',
                   );
                 } else {
                   logger.warn(
