@@ -15,6 +15,7 @@ export interface FeishuChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  registerGroup: (jid: string, name: string, folder: string, requiresTrigger: boolean) => void;
 }
 
 interface FeishuMessageContent {
@@ -122,12 +123,16 @@ export class FeishuChannel implements Channel {
       const timestamp = new Date(parseInt(message.create_time)).toISOString();
       // Notify about chat metadata
       this.opts.onChatMetadata(chatJid, timestamp);
-      // Only process messages for registered groups (temporarily disabled for testing)
+      // Only process messages for registered groups
       const groups = this.opts.registeredGroups();
       if (!groups[chatJid]) {
-        logger.info({ chatJid, text: message.content?.substring(0, 50) }, 'Received message from unregistered group (processing anyway)');
-        // Auto-register this group for testing
-        // return;
+        logger.info({ chatJid }, 'Received message from unregistered chat - auto-registering to separate folder based on chatId');
+        // Auto-register this chat to its own unique folder (each chat has isolated session)
+        // Use chatId without feishu_ prefix as folder name to keep it short
+        const folder = chatId.replace(/^feishu_/, '').replace(/@feishu\.net$/, '');
+        if (this.opts.registerGroup) {
+          this.opts.registerGroup(chatJid, chatId, folder, false);
+        }
       }
       // Parse message content
       let content: FeishuMessageContent = {};

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -135,7 +136,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (missedMessages.length === 0) return true;
 
   // For non-main groups, check if trigger is required and present
-  if (!isMainGroup && group.requiresTrigger !== false) {
+  // Feishu chats never require trigger
+  const isFeishu = chatJid.endsWith('@feishu.net');
+  if (!isMainGroup && !isFeishu && group.requiresTrigger !== false) {
     const hasTrigger = missedMessages.some((m) =>
       FEISHU_TRIGGER_PATTERN.test(m.content.trim()),
     );
@@ -331,11 +334,13 @@ async function startMessageLoop(): Promise<void> {
           if (!group) continue;
 
           const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
-          const needsTrigger = !isMainGroup && group.requiresTrigger !== false;
+          const isFeishu = chatJid.endsWith('@feishu.net');
+          const needsTrigger = !isMainGroup && !isFeishu && group.requiresTrigger !== false;
 
           // For non-main groups, only act on trigger messages.
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
+          // Feishu chats never need trigger regardless of group folder
           if (needsTrigger) {
             const hasTrigger = groupMessages.some((m) =>
               TRIGGER_PATTERN.test(m.content.trim()),
@@ -463,7 +468,48 @@ function cleanupOrphanedContainers(): void {
   }
 }
 
+// PID file to ensure single process
+const PID_FILE = './.nanoclaw.pid';
+function checkSingleProcess(): boolean {
+  try {
+    if (fs.existsSync(PID_FILE)) {
+      const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim());
+      try {
+        // Check if process is still running
+        process.kill(pid, 0);
+        logger.error({ pid }, 'Another NanoClaw process is already running');
+        return false;
+      } catch {
+        // PID not running, remove stale file
+        fs.unlinkSync(PID_FILE);
+      }
+    }
+    // Write current PID
+    fs.writeFileSync(PID_FILE, process.pid.toString());
+    return true;
+  } catch {
+    return true; // if can't check, proceed anyway
+  }
+}
+
+function cleanupPidFile(): void {
+  try {
+    if (fs.existsSync(PID_FILE)) {
+      fs.unlinkSync(PID_FILE);
+    }
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
 async function main(): Promise<void> {
+  // Ensure only one process runs
+  if (!checkSingleProcess()) {
+    process.exit(1);
+  }
+  // Cleanup PID on exit
+  process.on('exit', cleanupPidFile);
+
   ensureDockerRunning();
   initDatabase();
   logger.info('Database initialized');
@@ -484,6 +530,13 @@ async function main(): Promise<void> {
     onMessage: (chatJid, msg) => storeMessage(msg),
     onChatMetadata: (chatJid, timestamp) => storeChatMetadata(chatJid, timestamp),
     registeredGroups: () => registeredGroups,
+    registerGroup: (jid, name, folder, requiresTrigger) => registerGroup(jid, {
+      name,
+      folder,
+      trigger: FEISHU_TRIGGER_PATTERN.source,
+      added_at: new Date().toISOString(),
+      requiresTrigger,
+    }),
   });
 
   // Connect — resolves when first connected
